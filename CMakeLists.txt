@@ -1,5 +1,5 @@
 #------------------------------------------------------------------------------
-# Copyright 2019 CryptoGraphics
+# Copyright 2020 CryptoGraphics
 #
 #  This program is free software; you can redistribute it and/or modify it
 #  under the terms of the GNU General Public License as published by the Free
@@ -7,7 +7,7 @@
 #  any later version.  See COPYING for more details.
 #------------------------------------------------------------------------------
 
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.18)
 
 SET(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
@@ -99,35 +99,30 @@ endif()
 
 #------------------------------------------------------------------------------
 # CUDA
-option(USE_CUDA "Use CUDA" ON)
-set(CUDA_FOUND FALSE)
+#option(USE_CUDA "Use CUDA" ON)
 
+set(CUDA_FOUND FALSE)
 mark_as_advanced(CUDA_SDK_ROOT_DIR)
+find_package(CUDA)
+
+if(CUDA_FOUND)
+    option(USE_CUDA "Use CUDA" ON)
+    add_definitions(-DHAVE_CUDA)
+else()
+    option(USE_CUDA "Use CUDA" OFF)
+endif()
 
 if(USE_CUDA)
-    find_package(CUDA)
-endif()
-
-if(CUDA_FOUND)
     message("INFO: Using CUDA version ${CUDA_VERSION}")
-    add_definitions(-DHAVE_CUDA=1)
 else()
     message("INFO: Building without CUDA support")
-    add_definitions(-DHAVE_CUDA=0)
 endif()
 
 
-if(CUDA_FOUND)
-
-if(MSVC)
+if(CUDA_FOUND AND USE_CUDA)
     set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};
-       -Xptxas="-v";
-       -Xcompiler="/W3 /GR /EHsc"
-# minimal supported SM(fallback)
-        -arch sm_30;
-        
+        --ptxas-options=-v
 # generate ptx for
-        -gencode arch=compute_30,code=sm_30;
         -gencode arch=compute_35,code=sm_35;
         -gencode arch=compute_50,code=sm_50;
         -gencode arch=compute_52,code=sm_52;
@@ -135,57 +130,47 @@ if(MSVC)
         -gencode arch=compute_61,code=sm_61;
         -gencode arch=compute_70,code=sm_70;
         -gencode arch=compute_75,code=sm_75;
-# generate SASS for
-        -gencode arch=compute_30,code=compute_30;
-        -gencode arch=compute_35,code=compute_35;
-        -gencode arch=compute_50,code=compute_50;
-        -gencode arch=compute_52,code=compute_52;
-        -gencode arch=compute_60,code=compute_60;
-        -gencode arch=compute_61,code=compute_61;
-        -gencode arch=compute_70,code=compute_70;
-        -gencode arch=compute_75,code=compute_75;
-        
-        -lineinfo
+# generate SASS for(performance will not depend on driver)
+        #-gencode arch=compute_35,code=compute_35;
+        #-gencode arch=compute_50,code=compute_50;
+        #-gencode arch=compute_52,code=compute_52;
+        #-gencode arch=compute_60,code=compute_60;
+        #-gencode arch=compute_61,code=compute_61;
+        #-gencode arch=compute_70,code=compute_70;
+        #-gencode arch=compute_75,code=compute_75;
+
+        -lineinfo;
     )
 
-    set(CUDA_NVCC_FLAGS_DEBUG ${CUDA_NVCC_FLAGS_DEBUG}; -Xcompiler="-MTd -Od -Ob0" -DNDEBUG)
-    set(CUDA_NVCC_FLAGS_MINSIZEREL ${CUDA_NVCC_FLAGS_MINSIZEREL}; -Xcompiler="-MT -O1 -Ob1" -DNDEBUG)
-    set(CUDA_NVCC_FLAGS_RELEASE ${CUDA_NVCC_FLAGS_RELEASE}; -Xcompiler="-MT -O2 -Ob2")
-    set(CUDA_NVCC_FLAGS_RELWITHDEBINFO ${CUDA_NVCC_FLAGS_RELWITHDEBINFO}; -Xcompiler="-MT -Zi -O2 -Ob1" -DNDEBUG)
-    
-else() #UNIX/other windows compiler
-    set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};
-        --ptxas-options=-v;
-        -O3;
-        # minimal supported SM(fallback)
-        -arch sm_30;
-# generate ptx for
+    if (CUDA_VERSION_MAJOR LESS 11)
+        set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};
         -gencode arch=compute_30,code=sm_30;
-        -gencode arch=compute_35,code=sm_35;
-        -gencode arch=compute_50,code=sm_50;
-        -gencode arch=compute_52,code=sm_52;
-        -gencode arch=compute_60,code=sm_60;
-        -gencode arch=compute_61,code=sm_61;
-        -gencode arch=compute_70,code=sm_70;
-        -gencode arch=compute_75,code=sm_75;
-# generate SASS for
-        -gencode arch=compute_30,code=compute_30;
-        -gencode arch=compute_35,code=compute_35;
-        -gencode arch=compute_50,code=compute_50;
-        -gencode arch=compute_52,code=compute_52;
-        -gencode arch=compute_60,code=compute_60;
-        -gencode arch=compute_61,code=compute_61;
-        -gencode arch=compute_70,code=compute_70;
-        -gencode arch=compute_75,code=compute_75;
+        #-gencode arch=compute_30,code=compute_30;
+        )
+    else()
+        set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};
+        -gencode arch=compute_80,code=sm_80;
+        #-gencode arch=compute_80,code=compute_80;
+        )
+    endif()
 
-        -lineinfo
-    )
-endif()
-
+    set(CUDA_NVCC_FLAGS_DEBUG ${CUDA_NVCC_FLAGS_DEBUG};)
+    set(CUDA_NVCC_FLAGS_MINSIZEREL ${CUDA_NVCC_FLAGS_MINSIZEREL}; -O1; -DNDEBUG)
+    set(CUDA_NVCC_FLAGS_RELEASE ${CUDA_NVCC_FLAGS_RELEASE}; -O3;)
+    set(CUDA_NVCC_FLAGS_RELWITHDEBINFO ${CUDA_NVCC_FLAGS_RELWITHDEBINFO}; -O2; -DNDEBUG)
 endif()
 
 #------------------------------------------------------------------------------
-#OpenCL
+# Fix compile error with some configurations
+if(MSVC)
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /MT")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd")
+    set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} /MT")
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /MTd")
+endif()
+
+#------------------------------------------------------------------------------
+# OpenCL
 find_package( OpenCL REQUIRED )
 if(NOT OpenCL_FOUND)
     message(SEND_ERROR "Failed to find OpenCL library")
@@ -255,7 +240,7 @@ if(USE_OPENSSL)
 endif()
 
 # -----------------------------------------------------------------------------
-if(CUDA_FOUND)
+if(CUDA_FOUND AND USE_CUDA)
 CUDA_ADD_EXECUTABLE(VerthashMiner
     src/external/sha3/sha3.cpp
     src/external/tinycthread/tinycthread.cpp
@@ -279,6 +264,9 @@ endif()
 
 target_include_directories(VerthashMiner PRIVATE src)
 target_compile_features(VerthashMiner PUBLIC cxx_std_11)
+
+
+
 
 if(MSVC)
     set_property(TARGET VerthashMiner PROPERTY

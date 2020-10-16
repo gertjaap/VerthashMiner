@@ -22,7 +22,7 @@
 /* Define to the full name of this package. */
 #define PACKAGE_NAME "VerthashMiner"
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "0.5.0"
+#define PACKAGE_VERSION "0.6.0"
 
 // alloca detection
 #if !defined(alloca)
@@ -133,6 +133,8 @@ extern char *opt_cert;
 extern char *opt_proxy;
 extern long opt_proxy_type;
 extern mtx_t applog_lock;
+extern FILE* applog_file;
+extern bool opt_log_file;
 extern struct thr_info *thr_info;
 extern int longpoll_thr_id;
 extern int stratum_thr_id;

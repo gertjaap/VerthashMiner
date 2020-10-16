@@ -34,6 +34,34 @@ static inline uint32_t swab32(uint32_t v)
 #include <sys/endian.h>
 #endif
 
+#if !HAVE_DECL_BE64DEC
+inline uint64_t be64dec(const void* pp)
+{
+    const uint8_t* p = (uint8_t const*)pp;
+
+    return ((uint64_t)(p[7]) + ((uint64_t)(p[6]) << 8) +
+        ((uint64_t)(p[5]) << 16) + ((uint64_t)(p[4]) << 24) +
+        ((uint64_t)(p[3]) << 32) + ((uint64_t)(p[2]) << 40) +
+        ((uint64_t)(p[1]) << 48) + ((uint64_t)(p[0]) << 56));
+}
+#endif
+
+#if !HAVE_DECL_BE64ENC
+inline void be64enc(void* pp, uint64_t x)
+{
+    uint8_t* p = (uint8_t*)pp;
+
+    p[7] = x & 0xff;
+    p[6] = (x >> 8) & 0xff;
+    p[5] = (x >> 16) & 0xff;
+    p[4] = (x >> 24) & 0xff;
+    p[3] = (x >> 32) & 0xff;
+    p[2] = (x >> 40) & 0xff;
+    p[1] = (x >> 48) & 0xff;
+    p[0] = (x >> 56) & 0xff;
+}
+#endif
+
 #if !HAVE_DECL_BE32DEC
 static inline uint32_t be32dec(const void *pp)
 {

@@ -32,7 +32,8 @@ typedef struct VerthashInfo
 //! Must be called before usage. Reset all fields and set a mining data file name.
 //! Error codes
 //! 0 - Success(No error).
-//! 1 - File name is invalid. 
+//! 1 - File name is invalid.
+//! 2 - Memory allocation error
 int verthash_info_init(verthash_info_t* info, const char* file_name)
 {
     // init fields to 0
@@ -66,7 +67,7 @@ int verthash_info_init(verthash_info_t* info, const char* file_name)
     {
         fclose(fileMiningData);
         // Memory allocation fatal error.
-        return 3;
+        return 2;
     }
 
     // Load data

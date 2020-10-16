@@ -100,8 +100,21 @@ void applog(ELogPriority prio, const char *fmt, ...)
             logPrioNames[logNameIndex],
             fmt);
     mtx_lock(&applog_lock);
+
+    // log to console
     vfprintf(stderr, f, ap);    // atomic write to stderr
     fflush(stderr);
+
+    // log to file(optional)
+    if (opt_log_file)
+    {
+        if (applog_file != NULL)
+        {
+            vfprintf(applog_file, f, ap);
+            fflush(applog_file);
+        }
+    }
+
     mtx_unlock(&applog_lock);
 
     va_end(ap);

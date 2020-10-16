@@ -74,6 +74,14 @@ struct workio_cmd
 // Global objects
 static verthash_info_t verthashInfo;
 
+// Verthash data file hash in bytes for verification
+// 0x48aa21d7afededb63976d48a8ff8ec29d5b02563af4a1110b056cd43e83155a5
+static const uint8_t verthashDatFileHash_bytes[32] = { 0xa5, 0x55, 0x31, 0xe8, 0x43, 0xcd, 0x56, 0xb0,
+                                                       0x10, 0x11, 0x4a, 0xaf, 0x63, 0x25, 0xb0, 0xd5,
+                                                       0x29, 0xec, 0xf8, 0x8f, 0x8a, 0xd4, 0x76, 0x39,
+                                                       0xb6, 0xed, 0xed, 0xaf, 0xd7, 0x21, 0xaa, 0x48 };
+
+
 bool opt_debug = false;
 bool opt_protocol = false;
 static bool opt_benchmark = false;
@@ -104,8 +112,14 @@ static struct stratum_ctx stratum;
 // Used to trigger application exit if all workers fail.
 static std::atomic<int> numWorkersExited{0};
 
+// logger
 mtx_t applog_lock;
+FILE* applog_file = NULL;
+bool opt_log_file = false;
+
 static mtx_t stats_lock;
+
+
 
 volatile bool abort_flag = false;
 
@@ -206,6 +220,12 @@ static char const usage[] = PACKAGE_NAME " " PACKAGE_VERSION " by CryptoGraphics
 "--verthash-data <File>                 (-f)\n\t"
     "Specify verthash mining data file.\n"
 "\n"
+"--no-verthash-data_verification\n\t"
+    "Allow to use NVIDIA GPUs on OpenCL platform even if CUDA is available.\n"
+"\n"
+"--log-file\n\t"
+    "Enables logging to file.\n"
+"\n"
 "--device-list                          (-l)\n\t"
     "Print all available device configurations in raw device list format and exit.\n"
 "\n"
@@ -247,6 +267,8 @@ static struct option const options[] = {
     { "gen-conf", 1, NULL, 'g' },
     { "gen-conf-raw", 1, NULL, 'G' },
     { "verthash-data", 1, NULL, 'f' },
+    { "no-verthash-data_verification", 0, NULL, 1021 },
+    { "log-file", 0, NULL, 1022},
     { "device-list", 0, NULL, 'l' },
     { "version", 0, NULL, 'v' },
     { 0, 0, 0, 0 }
@@ -1470,7 +1492,7 @@ static int verthashOpenCL_thread(void *userdata)
     // compute max runs
     // 4294967295 max nonce
 
-    // reset hash-rate reporting timer
+    // reset the hash-rate reporting timer
     hrTimerStart = std::chrono::steady_clock::now();
 
     while (!abort_flag)
@@ -1610,6 +1632,7 @@ static int verthashOpenCL_thread(void *userdata)
                 double timeSec = ((double)avg) * 0.000000001;
                 double hashesPerSec = ((double)workSize) / timeSec;
                 
+                // Mhash/s version. Not precise enough with the new algorithm version.
                 //double hs = hashesPerSec * 0.000001;
                 //applog(LOG_INFO, "cl_device(%d): hashrate: %.02f Mhash/s", thr_id, hs);
                 
@@ -1664,8 +1687,17 @@ static int verthashOpenCL_thread(void *userdata)
 
                     if (!submit_work(mythr, &workInfo))
                     {
-                        applog(LOG_ERR, "cl_device(%d):Failed to submit work!", thr_id);
-                        continue;
+                        // Submit work can fail due to abort flag.
+                        if (!abort_flag)
+                        {
+                            applog(LOG_ERR, "cl_device(%d):Failed to submit work!", thr_id);
+                            continue;
+                        }
+                        else
+                        {
+                            // Stop submitting to prevent spam.
+                            break;
+                        }
                     }
 
                     if (!have_stratum)
@@ -1757,13 +1789,19 @@ static int verthashOpenCL_thread(void *userdata)
             {
                 workInfo.data[19] = results[i]; // HTarget results
 
-                if (opt_debug)
-                    applog(LOG_INFO, "cl_device(%d):Submitting work!", thr_id);
-
                 if (!submit_work(mythr, &workInfo))
                 {
-                    applog(LOG_ERR, "cl_device(%d):Failed to submit work!", thr_id);
-                    continue;
+                    // Submit work can fail due to abort flag.
+                    if (!abort_flag)
+                    {
+                        applog(LOG_ERR, "cl_device(%d):Failed to submit work!", thr_id);
+                        continue;
+                    }
+                    else
+                    {
+                        // Stop submitting to prevent spam.
+                        break;
+                    }
                 }
 
                 if (!have_stratum)
@@ -2202,8 +2240,17 @@ static int verthashCuda_thread(void *userdata)
 
                     if (!submit_work(mythr, &workInfo))
                     {
-                        applog(LOG_ERR, "cu_device(%d):Failed to submit work!", cuWorkerIndex);
-                        continue;
+                        // Submit work can fail due to abort flag.
+                        if (!abort_flag)
+                        {
+                            applog(LOG_ERR, "cu_device(%d):Failed to submit work!", cuWorkerIndex);
+                            continue;
+                        }
+                        else
+                        {
+                            // Stop submitting to prevent spam.
+                            break;
+                        }
                     }
 
                     if (!have_stratum)
@@ -2295,8 +2342,17 @@ static int verthashCuda_thread(void *userdata)
 
                 if (!submit_work(mythr, &workInfo))
                 {
-                    applog(LOG_ERR, "cu_device(%d):Failed to submit work!", cuWorkerIndex);
-                    continue;
+                    // Submit work can fail due to abort flag.
+                    if (!abort_flag)
+                    {
+                        applog(LOG_ERR, "cu_device(%d):Failed to submit work!", cuWorkerIndex);
+                        continue;
+                    }
+                    else
+                    {
+                        // Stop submitting to prevent spam.
+                        break;
+                    }
                 }
 
                 if (!have_stratum)
@@ -2709,8 +2765,6 @@ struct cmd_device_select_t
     uint32_t workSize;
 };
 
-// TODO: add verthash mining 
-
 struct cmd_result_t
 {
     // print device list in raw mode
@@ -2730,7 +2784,8 @@ struct cmd_result_t
 
     // verthash
     char* verthashDataFileName;
-
+    bool disableVerthashDataFileVerification;
+    
     // overwrite configuration options
     // cmd line has a priority over configuration file
     bool overwrite_rpcUser;
@@ -2778,6 +2833,7 @@ inline void cmd_result_init(cmd_result_t* cmdr)
 #endif
 
     cmdr->verthashDataFileName = NULL;
+    cmdr->disableVerthashDataFileVerification = false;
 
     cmdr->overwrite_rpcUser = false;
     cmdr->overwrite_rpcPass = false;
@@ -2984,7 +3040,7 @@ inline void cmd_result_update(cmd_result_t* cmdr, int argc, char *argv[])
                     strncasecmp(arg, "https://", 8) &&
                     strncasecmp(arg, "stratum+tcp://", 14) &&
                     strncasecmp(arg, "stratum+tcps://", 15)) {
-                    applog(LOG_ERR, "%s: unknown protocol -- '%s'\n",
+                    fprintf(stderr, "Error: %s: unknown protocol -- '%s'\n",
                            pname, arg);
                     cmdr->overwrite_rpcUrlPort = false;
                 }
@@ -3045,7 +3101,7 @@ inline void cmd_result_update(cmd_result_t* cmdr, int argc, char *argv[])
             pk_script_size = address_to_script(pk_script, sizeof(pk_script), arg);
             if (!pk_script_size)
             {
-                applog(LOG_ERR, "%s: invalid address -- '%s'\n",
+                fprintf(stderr, "Error: %s: invalid address -- '%s'\n",
                        pname, arg);
                 cmdr->overwrite_coinbaseAddr = false;
             }
@@ -3054,7 +3110,7 @@ inline void cmd_result_update(cmd_result_t* cmdr, int argc, char *argv[])
             cmdr->overwrite_coinbaseSig = true; 
             if (strlen(arg) + 1 > sizeof(coinbase_sig))
             {
-                applog(LOG_ERR, "%s: coinbase signature is too long\n", pname);
+                fprintf(stderr, "Error: %s: coinbase signature is too long\n", pname);
                 cmdr->overwrite_coinbaseSig = false;
             }
             strcpy(coinbase_sig, arg);
@@ -3075,6 +3131,12 @@ inline void cmd_result_update(cmd_result_t* cmdr, int argc, char *argv[])
             break;
         case 1020:          // --all-cu-devices
             cmdr->selectAllCUDevices = true;
+            break;
+        case 1021:          // --no-verthash-data-verification
+            cmdr->disableVerthashDataFileVerification = true;
+            break;
+        case 1022:          // --log-file
+            opt_log_file = false;
             break;
         case 'v':
             show_version_and_exit();
@@ -3187,6 +3249,27 @@ int main(int argc, char *argv[])
     cmd_result_init(&cmdr);
     cmd_result_update(&cmdr, argc, argv);
 
+    //-------------------------------------
+    // NOTE: File logger is getting configured before everything else,
+    // so as much logging data as possible can be saved in file
+    if (opt_log_file)
+    {
+        // 4+1+2+1+2+1+2+1+2+1+2+4+1
+        // YYYY-MM-DD HH-MM-SS.txt\0
+        char logFileName[24] = { 0 };
+        struct tm* sTm;
+
+        time_t now = time(0);
+        sTm = gmtime(&now);
+
+        strftime(logFileName, sizeof(logFileName), "%Y-%m-%d %H-%M-%S.txt", sTm);
+        applog_file = fopen(logFileName, "w");
+        if (!applog_file)
+        {
+            applog(LOG_WARNING, "Failed to open file for logging(%s).", logFileName);
+            applog(LOG_WARNING, "Logging to file is not available.");
+        }
+    }
 
     // get raw device list options, which can be modified later depending on supported extensions
     bool rawDeviceList = cmdr.rawDeviceList;
@@ -3195,16 +3278,26 @@ int main(int argc, char *argv[])
     cl_int errorCode = CL_SUCCESS;
     //-------------------------------------
     // get platform IDs
-    cl_uint numPlatformIDs = 0;
-    errorCode = clGetPlatformIDs(0, nullptr, &numPlatformIDs);
-    if (errorCode != CL_SUCCESS || numPlatformIDs <= 0)
+    cl_uint numCLPlatformIDs = 0;
+    std::vector<cl_platform_id> clplatformIds;
+    errorCode = clGetPlatformIDs(0, nullptr, &numCLPlatformIDs);
+    if (errorCode != CL_SUCCESS || numCLPlatformIDs <= 0)
     {
-        applog(LOG_ERR, "Failed to find any OpenCL platforms.");
+#ifdef HAVE_CUDA
+        applog(LOG_WARNING, "Failed to find any OpenCL platforms.");
+        // Look for CUDA platforms...
+#else
+        applog(LOG_WARNING, "Failed to find any OpenCL platforms. Exiting...");
+        // exit application only if compiled without CUDA support
         cmd_result_free(&cmdr);
         return 1;
+#endif
     }
-    std::vector<cl_platform_id> clplatformIds(numPlatformIDs);
-    clGetPlatformIDs(numPlatformIDs, clplatformIds.data(), nullptr);
+    else
+    {
+        clplatformIds.resize(numCLPlatformIDs);
+        clGetPlatformIDs(numCLPlatformIDs, clplatformIds.data(), nullptr);
+    }
     //-------------------------------------
     // get logical device list
     // AMDCL2(Windows) and ROCm.(Mesa and others are listed as V_Other)
@@ -3212,7 +3305,7 @@ int main(int argc, char *argv[])
     const std::string platformVendorNV("NVIDIA Corporation");
     // logical device list sorted by PCIe bus ID
     std::vector<vh::cldevice_t> cldevices;
-    for (size_t i = 0; i < (size_t)numPlatformIDs; ++i)
+    for (size_t i = 0; i < (size_t)numCLPlatformIDs; ++i)
     {
         // check if platform is supported
         size_t infoSize = 0;
@@ -3220,7 +3313,7 @@ int main(int argc, char *argv[])
         std::string infoString(infoSize, ' ');
         clGetPlatformInfo(clplatformIds[i], CL_PLATFORM_VENDOR, infoSize, (void*)infoString.data(), nullptr);
 
-        vh::EVendor vendor;
+        vh::EVendor vendor = vh::V_OTHER;
         if (infoString.find(platformVendorAMD) != std::string::npos)
         {
             vendor = vh::V_AMD;
@@ -3233,10 +3326,6 @@ int main(int argc, char *argv[])
                 continue;
             }
             vendor = vh::V_NVIDIA;
-        }
-        else
-        {
-            vendor = vh::V_OTHER;
         }
 
         // check if platform version
@@ -3256,7 +3345,7 @@ int main(int argc, char *argv[])
         // get devices available on this platform
         cl_uint numDeviceIDs = 0;
         errorCode = clGetDeviceIDs(clplatformIds[i], CL_DEVICE_TYPE_GPU, 0, nullptr, &numDeviceIDs);
-        if (errorCode != CL_SUCCESS || numPlatformIDs <= 0)
+        if (errorCode != CL_SUCCESS || numCLPlatformIDs <= 0)
         {
             applog(LOG_WARNING, "No GPU devices available on platform:");
             applog(LOG_WARNING, "index: %u, %s", i, infoString.c_str()); 
@@ -3325,11 +3414,14 @@ int main(int argc, char *argv[])
         }
     }
 
-    //-----------------------------------------------------------------------------
-    // sort device list based on pcieBusID -> platformID
-    std::sort(cldevices.begin(), cldevices.end(), vh::compareLogicalDevices);
+    if(numCLPlatformIDs > 0)
+    {
+        //-----------------------------------------------------------------------------
+        // sort device list based on pcieBusID -> platformID
+        std::sort(cldevices.begin(), cldevices.end(), vh::compareLogicalDevices);
 
-    applog(LOG_INFO, "Found %llu OpenCL devices.", (uint64_t)cldevices.size());
+        applog(LOG_INFO, "Found %llu OpenCL devices.", (uint64_t)cldevices.size());
+    }
 
 #ifdef HAVE_CUDA
     //-------------------------------------
@@ -3343,7 +3435,16 @@ int main(int argc, char *argv[])
     else
     {
         applog(LOG_WARNING, "Failed to initialize CUDA. error code: %d", cuerr);
-        applog(LOG_WARNING, "CUDA devices will be unavailable.");
+        if(numCLPlatformIDs > 0)
+        {
+            applog(LOG_WARNING, "CUDA devices will be unavailable.");
+        }
+        else
+        {
+            applog(LOG_WARNING, "Both OpenCL and CUDA modules are not available! Exiting...");
+            cmd_result_free(&cmdr);
+            return 1;            
+        }
     }
 #endif
 
@@ -3408,6 +3509,7 @@ int main(int argc, char *argv[])
         fflush(stdout);
 
         cmd_result_free(&cmdr);
+
         return 0;
     }
 
@@ -3461,9 +3563,9 @@ int main(int argc, char *argv[])
                                "#        automatically updated if it becomes outdated\n"
                                "#        Default: verthash.dat\n"
                                "#\n"
-                               "#    TerminalColors\n"
-                               "#        Enable colors for logging. Windows Command Prompt is not supported.\n"
-                               "#        Default: false\n"
+                               "#    VerthashDataFileVerification\n"
+                               "#        Enable verthash data file verification.\n"
+                               "#        Default: true\n"
                                "#\n"
                                "#    Debug\n"
                                "#        Enable extra debugging output.\n"
@@ -3472,6 +3574,7 @@ int main(int argc, char *argv[])
                                "#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#\n"
                                "\n"
                                "<Global VerthashDataFile = \"verthash.dat\"\n"
+                               "        VerthashDataFileVerification = \"true\"\n"
                                "        Debug = \"false\">\n"
                                "\n"
                                "#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#\n"
@@ -3574,7 +3677,7 @@ int main(int argc, char *argv[])
         applog(LOG_INFO, "Configuration file: (%s) has been generated.", cmdr.generateConfigFileName);
 
         cmd_result_free(&cmdr);
-
+        
         return 0;
     }
 
@@ -3696,29 +3799,15 @@ int main(int argc, char *argv[])
         // Global config section
 
         //-------------------------------------
-        // get Verthash data file parameter
-        if (!cmdr.verthashDataFileName) 
+        // get Verthash data file parameter and initialize (if possible)
+        int vhLoadResult = -1;
+        if (!cmdr.verthashDataFileName) // if data file has been specified using cmd line
         {
             // TODO: check if algorithm == Verthash
             csetting = cf.getSetting("Global", "VerthashDataFile");
             if (csetting)
             {
-                if(verthash_info_init(&verthashInfo, csetting->AsString.c_str()) != 0)
-                {
-                    applog(LOG_ERR, "Verthash data file name is invalid");
-                    ++cfErrors;
-                }
-                else
-                {
-                    // Verthash data file will be loaded and validated during block header generation.
-                    // Check if file exists to perform early exit if needed
-                    if (!fileExists(csetting->AsString.c_str()))
-                    {
-                        applog(LOG_ERR, "Failed to open Verthash data file.");
-                        applog(LOG_ERR, "File: (%s)", csetting->AsString.c_str());
-                        ++cfErrors;
-                    }
-                }
+                vhLoadResult = verthash_info_init(&verthashInfo, csetting->AsString.c_str());
             }
             else
             {
@@ -3728,23 +3817,67 @@ int main(int argc, char *argv[])
         }
         else // use data from command line
         {
-            if(verthash_info_init(&verthashInfo, cmdr.verthashDataFileName) != 0)
+            vhLoadResult = verthash_info_init(&verthashInfo, cmdr.verthashDataFileName);
+        }
+
+        //-------------------------------------
+        // Check Verthash initialization status and verify data file(if enabled)
+        if (vhLoadResult == 0) // No Error
+        {
+            applog(LOG_INFO, "Verthash data file has been loaded succesfully!");
+
+            // set verification flag
+            bool verifyDataFile = true;
+            if (!cmdr.disableVerthashDataFileVerification)
             {
-                applog(LOG_ERR, "Verthash data file name is invalid");
-                ++cfErrors;
+                csetting = cf.getSetting("Global", "VerthashDataFileVerification");
+                if (csetting)
+                {
+                    verifyDataFile = csetting->AsBool;
+                }
+                else
+                {
+                    applog(LOG_WARNING, "Failed to get a \"VerthashDataFileVerification\" option inside \"Global\" section. Setting to \"true\"");
+                    ++cfWarnings;
+                }
             }
             else
             {
-                // Verthash data file will be loaded and validated during block header generation.
-                // Check if file exists to perform early exit if needed
-                if (!fileExists(cmdr.verthashDataFileName))
+                verifyDataFile = false;
+            }
+
+            // verify data file if enabled
+            if (verifyDataFile)
+            {
+                uint8_t vhDataFileHash[32] = { 0 };
+                sha256s(vhDataFileHash, verthashInfo.data, verthashInfo.dataSize);
+                if (memcmp(vhDataFileHash, verthashDatFileHash_bytes, sizeof(verthashDatFileHash_bytes)) == 0)
                 {
-                    applog(LOG_ERR, "Failed to open Verthash data file.");
-                    applog(LOG_ERR, "File: (%s)", cmdr.verthashDataFileName);
+                    applog(LOG_INFO, "Verthash data file has been verified succesfully!");
+                }
+                else
+                {
+                    applog(LOG_ERR, "Verthash data file verification has failed!");
                     ++cfErrors;
                 }
             }
+            else
+            {
+                applog(LOG_WARNING, "Verthash data file verification stage is disabled!");
+                ++cfWarnings;
+            }
         }
+        else
+        {
+            if (vhLoadResult == 1)
+                applog(LOG_ERR, "Verthash data file name is invalid");
+            else if (vhLoadResult == 2)
+                applog(LOG_ERR, "Failed to allocate memory for Verthash data");
+            else // for debugging purposes
+                applog(LOG_ERR, "Verthash data initialization unknown error code: %d", vhLoadResult);
+            ++cfErrors;
+        }
+
 
         //-------------------------------------
         // get Debug parameter
@@ -4079,7 +4212,7 @@ int main(int argc, char *argv[])
             {
                 opt_fail_pause = 5;
 
-                applog(LOG_WARNING, "Failed to get a \"Scantime\" option inside \"Connection\" section. Setting to \"5\"");
+                applog(LOG_WARNING, "Failed to get a \"RetryPause\" option inside \"Connection\" section. Setting to \"5\"");
                 ++cfWarnings;
             }
         }
@@ -4377,6 +4510,7 @@ int main(int argc, char *argv[])
         // Pure cmd line configuration.
         // Validate parameters
         int cmdErrors = 0;
+        int cmdWarnings = 0;
 
         // address
         if (!cmdr.overwrite_rpcUrlPort) 
@@ -4400,21 +4534,43 @@ int main(int argc, char *argv[])
         }
 
         // verthash data file
-        if(verthash_info_init(&verthashInfo, cmdr.verthashDataFileName) != 0)
+        int vhLoadResult = verthash_info_init(&verthashInfo, cmdr.verthashDataFileName);
+        // Check Verthash initialization status
+        if (vhLoadResult == 0) // No Error
         {
-            applog(LOG_ERR, "Verthash data file name is invalid");
-            ++cmdErrors;
+            applog(LOG_INFO, "Verthash data file has been loaded succesfully!");
+
+            //  and verify data file(if it was enabled)
+            if (!cmdr.disableVerthashDataFileVerification)
+            {
+                uint8_t vhDataFileHash[32] = { 0 };
+                sha256s(vhDataFileHash, verthashInfo.data, verthashInfo.dataSize);
+                if (memcmp(vhDataFileHash, verthashDatFileHash_bytes, sizeof(verthashDatFileHash_bytes)) == 0)
+                {
+                    applog(LOG_INFO, "Verthash data file has been verified succesfully!");
+                }
+                else
+                {
+                    applog(LOG_ERR, "Verthash data file verification has failed!");
+                    ++cmdErrors;
+                }
+            }
+            else
+            {
+                applog(LOG_WARNING, "Verthash data file verification stage is disabled!");
+                ++cmdWarnings;
+            }
         }
         else
         {
-            // Verthash data file will be loaded and validated during block header generation.
-            // Check if file exists to perform early exit if needed
-            if (!fileExists(cmdr.verthashDataFileName))
-            {
-                applog(LOG_ERR, "Failed to open Verthash data file.");
-                applog(LOG_ERR, "File: (%s)", cmdr.verthashDataFileName);
-                ++cmdErrors;
-            }
+            // Handle Verthash error codes
+            if (vhLoadResult == 1)
+                applog(LOG_ERR, "Verthash data file name is invalid");
+            else if (vhLoadResult == 2)
+                applog(LOG_ERR, "Failed to allocate memory for Verthash data");
+            else // for debugging purposes
+                applog(LOG_ERR, "Verthash data initialization unknown error code: %d", vhLoadResult);
+            ++cmdErrors;
         }
 
         // coinbase address is needed only for stratum values
@@ -4430,13 +4586,13 @@ int main(int argc, char *argv[])
         // Final configuration validation.
         if (cmdErrors > 0)
         {
-            applog(LOG_ERR, "Miner configuration failed! (Errors: %d)", cmdErrors);
+            applog(LOG_ERR, "Miner configuration failed! (Errors: %d, Warnings: %d)", cmdErrors, cmdWarnings);
             cmd_result_free(&cmdr);
             return 1;
         }
         else
         {
-            applog(LOG_INFO, "Miner has been successfully configured!");
+            applog(LOG_INFO, "Miner has been successfully configured! (Errors: %d, Warnings: %d)", cmdErrors, cmdWarnings);
         }
     }
 
@@ -4690,11 +4846,13 @@ int main(int argc, char *argv[])
     if (have_stratum) { tq_free(thr_info[stratum_thr_id].q); }
     else if (want_longpoll) { tq_free(thr_info[longpoll_thr_id].q); }
 
-
     applog(LOG_INFO, "Application has been exited gracefully.");
 
-
-    
+    // close file logger if it was enabled
+    if (applog_file)
+    {
+        fclose(applog_file);
+    }
 
     return 0;
 }

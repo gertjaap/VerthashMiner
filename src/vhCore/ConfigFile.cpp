@@ -236,9 +236,9 @@ parse:
 
                     // the setting is done, append it to the current block.
                     current_block_map[ahash(current_variable)] = current_setting_struct;
-                    #ifdef _CONFIG_DEBUG
+#ifndef NDEBUG
                     printf("Block: '%s', Setting: '%s', Value: '%s'\n", current_block.c_str(), current_variable.c_str(), current_setting_struct.AsString.c_str());
-                    #endif
+#endif
                     // no longer doing this setting, or in a quote.
                     current_setting = "";
                     current_variable = "";
@@ -288,7 +288,7 @@ parse:
                         // the setting is done, append it to the current block.
                         current_block_map[ahash(current_variable)] = current_setting_struct;
 
-#ifdef _CONFIG_DEBUG
+#ifndef NDEBUG
                         printf("Block: '%s', Setting: '%s', Value: '%s'\n", current_block.c_str(), current_variable.c_str(), current_setting_struct.AsString.c_str());
 #endif
                         // no longer doing this setting, or in a quote.

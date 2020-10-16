@@ -9,7 +9,7 @@
  */
 
 typedef unsigned int uint;
-typedef unsigned long uint64_t;
+typedef unsigned long long uint64_t;
 
 static __device__ __forceinline__ uint2 operator^ (uint2 a, uint2 b) { return make_uint2(a.x ^ b.x, a.y ^ b.y); }
 static __device__ __forceinline__ uint2 operator& (uint2 a, uint2 b) { return make_uint2(a.x & b.x, a.y & b.y); }
@@ -313,8 +313,8 @@ __global__ void cu_sha3_512_256(uint* output, const uint in18, const uint firstN
 // Local work size. It can vary between hardware architectures.
 #define WORK_SIZE 64
 
-// Computed from the Verthash data file
-#define MDIV 71303125
+// Computed from the Verthash data file. NOTE!!! MUST BE UPDATED IF VERTHASH.DAT file size has been changed!!!
+#define MDIV 80216063
 
 // Extended validation uses 64 bit GPU side validation instead of 32 bit.
 // It can be slightly more efficient with higher diff
