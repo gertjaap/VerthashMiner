@@ -113,7 +113,7 @@ static void generateCLDeviceConfig(const std::vector<cl_platform_id>& clplatform
 
                 deviceListText += deviceName;
             
-                deviceListText += "\n#    PCIeId: ";
+                deviceListText += "\n#    PCIe bus ID: ";
                 pcieBusIdString = std::to_string(prevPCIeBusId);
                 deviceListText += pcieBusIdString;
                 deviceListText += availablePlatformIndices;

@@ -127,7 +127,7 @@ static unsigned long accepted_count = 0L;
 static unsigned long rejected_count = 0L;
 static double *thr_hashrates;
 
-static char const usage[] = PACKAGE_NAME " " PACKAGE_VERSION " by CryptoGraphics.\n"
+static char const usage[] = PACKAGE_NAME " " PACKAGE_VERSION " by CryptoGraphics <CrGr@protonmail.com>\n"
 "\n"
 "Usage: VerthashMiner [options]\n"
 "\n"
@@ -221,7 +221,7 @@ static char const usage[] = PACKAGE_NAME " " PACKAGE_VERSION " by CryptoGraphics
     "Specify verthash mining data file.\n"
 "\n"
 "--no-verthash-data_verification\n\t"
-    "Allow to use NVIDIA GPUs on OpenCL platform even if CUDA is available.\n"
+    "Disable verthash data file verification.\n"
 "\n"
 "--log-file\n\t"
     "Enables logging to file.\n"
@@ -3136,7 +3136,7 @@ inline void cmd_result_update(cmd_result_t* cmdr, int argc, char *argv[])
             cmdr->disableVerthashDataFileVerification = true;
             break;
         case 1022:          // --log-file
-            opt_log_file = false;
+            opt_log_file = true;
             break;
         case 'v':
             show_version_and_exit();
@@ -3631,7 +3631,7 @@ int main(int argc, char *argv[])
                                "#\n"
                                "#    RetryPause\n"
                                "#        Time to pause between retries, in seconds.\n"
-                               "#        Default: 5\n"
+                               "#        Default: 30\n"
                                "#\n"
                                "#    ProtocolDump\n"
                                "#        Verbose dump of protocol-level activities.\n"
@@ -3652,7 +3652,7 @@ int main(int argc, char *argv[])
                                "            LongPollTimeout = \"0\"\n"
                                "            Scantime = \"5\"\n"
                                "            Retries = \"-1\"\n"
-                               "            RetryPause = \"5\"\n"
+                               "            RetryPause = \"30\"\n"
                                "            ProtocolDump = \"false\">\n"
                                "\n");
 
