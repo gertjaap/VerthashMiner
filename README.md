@@ -22,8 +22,8 @@ Mesa Gallium Compute and macOS are not supported.
 
 ## Download
 * Binary releases: https://github.com/CryptoGraphics/VerthashMiner/releases
-* Clone with `git clone https://github.com/CryptoGraphics/VerthashMiner.git`  
- Follow [Building VerthashMiner](#building-verthashminer).
+* Clone with `git clone https://github.com/CryptoGraphics/VerthashMiner.git`
+* Follow [Building VerthashMiner](#building-verthashminer).
 
 ## Quick start guide
 Miner can be configured through the command line, configuration file and a mix of both. All options are documented inside.
