@@ -12,7 +12,7 @@ This open source release was made possible thanks to [Vertcoin project](https://
 
 ## Supported hardware
 - AMD GPU GCN 1.0 or later.
-- NVIDIA GPU SM 3.0 or later.
+- NVIDIA GPU SM 3.5 or later.
 
 ## Supported platforms
 - AMD: OpenCL driver from AMD Radeon Software driver on Windows. AMDGPU-Pro and ROCm on Linux.
@@ -230,3 +230,23 @@ https://cmake.org/
 - `LONGPOLL pushed new work` spam may happen during GMT solo mining if network was stale for a long time. (e.g. testnet)  
    In this case miner should be run with either `--no-longpoll` or `LongPoll` option set to `false` inside the configuration file.
 - To enable file logger use `--log-file` command option.
+- All miner "devices" are virtual. By default miner assigns 1 virtual GPU per physical one. Thus 1 thread per GPU.
+It is possible to emulate any devices you want by putting duplicates in the list. You can even use multiple CUDA and OpenCL devices at the same time while having only 1 physical NVIDIA GPU.
+There are 3 ways to do it:
+  1. Using Command Line.  
+Instead of `--all-cl-devices` and/or `--all-cu-devices` use:  
+`--cl-devices ...`(-d) and `--cu-devices ...(-D)` respectively.  
+To get all physical devices available to the miner use:  
+`-l` or `--device-list`  
+To create 2 virtual devices for one physical device, specify the same device twice.  
+`--cl-devices 0:w131072,0:w131072`  
+131072 is a work size(default value). You can try specify your own(e.g 32768, 65536, 262144, 524288 etc) and check performance/power consumption.
+
+  2. and 3. Using a Configuration File.  
+OpenCL devices have 2 configuration file formats `PCIeBusID` and `Raw device list`. CUDA devices have only 1(`Raw device list`).  
+Duplicate device configuration block.  
+For example: There will be only 1 `<CL_Device0 ...>` block with 1 physical GPU.
+Duplicate it and rename a new one to `<CL_Device1 ...>`.
+
+* When using 2 or more devices for a single physical GPU, their hash-rate will probably be the same.  
+You can try to specify a different `WorkSize` for each of them and compare multiple `WorkSize` values at the same time. Not sure about accuracy though. It may vary between different GPUs, drivers, OS and other apps running in the background.
